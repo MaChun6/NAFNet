@@ -16,8 +16,9 @@ Simple Baselines for Image Restoration
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from basicsr.models.archs.arch_util import LayerNorm2d
-from basicsr.models.archs.local_arch import Local_Base
+from basicsr.archs.arch_util import LayerNorm2d
+from basicsr.archs.module import FSCA, FreMaskBlock, DDDBlock
+from basicsr.utils.registry import ARCH_REGISTRY
 
 class SimpleGate(nn.Module):
     def forward(self, x):
@@ -95,6 +96,9 @@ class NAFNet(nn.Module):
         self.middle_blks = nn.ModuleList()
         self.ups = nn.ModuleList()
         self.downs = nn.ModuleList()
+        self.lowlight_blks = nn.ModuleList()
+        self.masks_blks = nn.ModuleList()
+        self.ddd_blks = nn.ModuleList()
 
         chan = width
         for num in enc_blk_nums:
@@ -106,12 +110,14 @@ class NAFNet(nn.Module):
             self.downs.append(
                 nn.Conv2d(chan, 2*chan, 2, 2)
             )
+            self.lowlight_blks.append(FSCA(chan))
             chan = chan * 2
 
         self.middle_blks = \
             nn.Sequential(
                 *[NAFBlock(chan) for _ in range(middle_blk_num)]
             )
+        self.lowlight_mid_blk = FSCA(chan)
 
         for num in dec_blk_nums:
             self.ups.append(
@@ -121,12 +127,15 @@ class NAFNet(nn.Module):
                 )
             )
             chan = chan // 2
+            self.masks_blks.append(FreMaskBlock(chan))
+            self.ddd_blks.append(DDDBlock(chan, dilations=(0, 1, 2, 4), use_mask=True))
             self.decoders.append(
                 nn.Sequential(
                     *[NAFBlock(chan) for _ in range(num)]
                 )
             )
 
+        self.refine_blk =nn.Sequential(*[NAFBlock(chan) for _ in range(refine_blk_num)])
         self.padder_size = 2 ** len(self.encoders)
 
     def forward(self, inp):
