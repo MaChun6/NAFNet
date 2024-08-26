@@ -145,19 +145,25 @@ class NAFNet(nn.Module):
         x = self.intro(inp)
 
         encs = []
+        masks = []
 
-        for encoder, down in zip(self.encoders, self.downs):
+        for lowlight, encoder, down in zip(self.lowlight_blks, self.encoders, self.downs):
+            x = lowlight(x)
             x = encoder(x)
             encs.append(x)
             x = down(x)
 
         x = self.middle_blks(x)
+        x = self.middle_blks(x)
 
-        for decoder, up, enc_skip in zip(self.decoders, self.ups, encs[::-1]):
+        for decoder, up, enc_skip, masks_blk, ddd_blk in zip(self.decoders, self.ups, encs[::-1], self.masks_blks, self.ddd_blks):
             x = up(x)
             x = x + enc_skip
+            mask = masks_blk(x)
+            x = ddd_blk(x, mask)
             x = decoder(x)
-
+            masks.append(mask)
+        x = self.refine_blk(x)
         x = self.ending(x)
         x = x + inp
 
